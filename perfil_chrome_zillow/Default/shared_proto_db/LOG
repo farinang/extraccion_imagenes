@@ -1,2 +1,3 @@
-2026/09/01-13:22:41.498 1fa4 Creating DB C:\Users\USUARIO\Escritorio\Proyecto Propiedades\codigos\extraccion_imagenes\perfil_chrome_zillow\Default\shared_proto_db since it was missing.
-2026/09/01-13:22:41.507 1fa4 Reusing MANIFEST C:\Users\USUARIO\Escritorio\Proyecto Propiedades\codigos\extraccion_imagenes\perfil_chrome_zillow\Default\shared_proto_db/MANIFEST-000001
+2026/09/03-14:16:43.875 7d38 Reusing MANIFEST C:\Users\USUARIO\Escritorio\Proyecto Propiedades\codigos\extraccion_imagenes\perfil_chrome_zillow\Default\shared_proto_db/MANIFEST-000001
+2026/09/03-14:16:43.877 7d38 Recovering log #3
+2026/09/03-14:16:43.879 7d38 Reusing old log C:\Users\USUARIO\Escritorio\Proyecto Propiedades\codigos\extraccion_imagenes\perfil_chrome_zillow\Default\shared_proto_db/000003.log 

@@ -868,28 +868,31 @@ def obtener_mejor_url_img(
     driver,
     img
 ) -> Optional[str]:
+    """
+    Devuelve una URL válida de la fotografía para identificarla.
+
+    IMPORTANTE:
+    Aquí NO intentamos escoger la versión definitiva/original. Zillow puede
+    mostrar variantes recortadas como ``cc_ft`` en src/currentSrc/srcset.
+    La versión sin recorte se resuelve posteriormente, durante la descarga,
+    utilizando el hash estable de la fotografía.
+    """
 
     candidatos = []
 
     # --------------------------------------------------------
-    # SRCSET
+    # SRC
     # --------------------------------------------------------
-
     try:
+        src = img.get_attribute("src")
 
-        srcset = img.get_attribute(
-            "srcset"
-        )
-
-        mejor = obtener_mejor_srcset(
-            srcset
-        )
-
-        if mejor:
-
-            candidatos.append(
-                mejor
-            )
+        if (
+            src
+            and
+            "photos.zillowstatic.com"
+            in src.lower()
+        ):
+            candidatos.append(src)
 
     except Exception:
         pass
@@ -897,9 +900,7 @@ def obtener_mejor_url_img(
     # --------------------------------------------------------
     # currentSrc
     # --------------------------------------------------------
-
     try:
-
         current_src = driver.execute_script(
             """
             return arguments[0].currentSrc || "";
@@ -913,43 +914,66 @@ def obtener_mejor_url_img(
             "photos.zillowstatic.com"
             in current_src.lower()
         ):
-
-            candidatos.append(
-                current_src
-            )
+            candidatos.append(current_src)
 
     except Exception:
         pass
 
     # --------------------------------------------------------
-    # src
+    # SRCSET del IMG
     # --------------------------------------------------------
-
     try:
+        srcset = img.get_attribute("srcset") or ""
 
-        src = img.get_attribute(
-            "src"
-        )
+        for item in srcset.split(","):
+            partes = item.strip().split()
 
-        if (
-            src
-            and
-            "photos.zillowstatic.com"
-            in src.lower()
-        ):
+            if not partes:
+                continue
 
-            candidatos.append(
-                src
-            )
+            candidato = partes[0]
+
+            if (
+                "photos.zillowstatic.com"
+                in candidato.lower()
+            ):
+                candidatos.append(candidato)
+
+    except Exception:
+        pass
+
+    # --------------------------------------------------------
+    # <picture><source srcset=...>
+    # --------------------------------------------------------
+    try:
+        picture = img.find_element(By.XPATH, "./ancestor::picture[1]")
+        sources = picture.find_elements(By.TAG_NAME, "source")
+
+        for source in sources:
+            srcset = source.get_attribute("srcset") or ""
+
+            for item in srcset.split(","):
+                partes = item.strip().split()
+
+                if not partes:
+                    continue
+
+                candidato = partes[0]
+
+                if (
+                    "photos.zillowstatic.com"
+                    in candidato.lower()
+                ):
+                    candidatos.append(candidato)
 
     except Exception:
         pass
 
     if not candidatos:
-
         return None
 
-    # srcset ya suele ser el de más resolución.
+    # Basta con una variante de la foto para extraer el hash.
+    # La versión final sin recorte se resolverá al descargar.
     return candidatos[0]
 
 
@@ -1367,6 +1391,166 @@ def extraer_fotos_tile_por_tile(
 
 
 # ============================================================
+# RESOLVER VERSIÓN ORIGINAL / SIN RECORTE
+# ============================================================
+
+FOTO_BASE_RE = re.compile(
+    r"^(https://photos\.zillowstatic\.com/fp/[A-Za-z0-9]+)-[^/?]+"
+    r"\.(?:webp|jpg|jpeg|png|avif)(?:\?.*)?$",
+    re.IGNORECASE,
+)
+
+
+def obtener_base_foto_zillow(url: str) -> Optional[str]:
+    """
+    Convierte cualquier variante de una foto de Zillow, por ejemplo:
+
+        .../HASH-cc_ft_768.webp
+        .../HASH-o_a.webp
+        .../HASH-uncropped_scaled_within_1536_1152.webp
+
+    en:
+
+        .../HASH
+    """
+
+    if not url:
+        return None
+
+    match = FOTO_BASE_RE.match(url)
+
+    if match:
+        return match.group(1)
+
+    # Fallback más tolerante.
+    match = re.search(
+        r"(https://photos\.zillowstatic\.com/fp/[A-Za-z0-9]+)-",
+        url,
+        re.IGNORECASE,
+    )
+
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def generar_candidatos_sin_recorte(url_detectada: str) -> list[str]:
+    """
+    Genera variantes de la MISMA fotografía, priorizando las que Zillow
+    identifica explícitamente como ``uncropped_scaled_within``.
+
+    No se presupone que todas existan: cada candidata se valida mediante
+    una solicitud HTTP y Pillow antes de utilizarla.
+    """
+
+    base = obtener_base_foto_zillow(url_detectada)
+
+    if not base:
+        return [url_detectada]
+
+    candidatos = [
+        # Máxima variante sin recorte observada habitualmente en Zillow.
+        f"{base}-uncropped_scaled_within_1536_1152.webp",
+        f"{base}-uncropped_scaled_within_1536_1152.jpg",
+
+        # Segunda opción sin recorte.
+        f"{base}-uncropped_scaled_within_1344_1008.webp",
+        f"{base}-uncropped_scaled_within_1344_1008.jpg",
+
+        # Variante original/alta de Zillow cuando no hay uncropped disponible.
+        f"{base}-o_a.webp",
+        f"{base}-o_a.jpg",
+
+        # Último fallback: la URL que estaba utilizando el DOM.
+        url_detectada,
+    ]
+
+    # Eliminar duplicados preservando orden.
+    return list(dict.fromkeys(candidatos))
+
+
+def descargar_y_validar_imagen(
+    session: requests.Session,
+    url: str,
+    timeout: int = 15,
+):
+    """
+    Descarga una candidata y comprueba que sea realmente una imagen que
+    Pillow pueda abrir. Devuelve (response, image) o (None, None).
+    """
+
+    try:
+        response = session.get(
+            url,
+            timeout=timeout,
+            allow_redirects=True,
+        )
+
+        response.raise_for_status()
+
+        content_type = (
+            response.headers
+            .get("Content-Type", "")
+            .lower()
+        )
+
+        if content_type and "image" not in content_type:
+            return None, None
+
+        imagen = Image.open(
+            BytesIO(response.content)
+        )
+
+        # Fuerza la decodificación aquí para detectar datos corruptos.
+        imagen.load()
+
+        if imagen.width <= 0 or imagen.height <= 0:
+            return None, None
+
+        return response, imagen
+
+    except Exception:
+        return None, None
+
+
+def resolver_imagen_sin_recorte(
+    session: requests.Session,
+    url_detectada: str,
+):
+    """
+    Busca la mejor versión disponible de la fotografía.
+
+    Prioridad:
+      1) uncropped_scaled_within_1536_1152
+      2) uncropped_scaled_within_1344_1008
+      3) o_a
+      4) URL detectada originalmente
+
+    Así evitamos guardar una variante ``cc_ft`` si Zillow ofrece una versión
+    explícitamente sin recorte de la misma fotografía.
+    """
+
+    candidatos = generar_candidatos_sin_recorte(
+        url_detectada
+    )
+
+    for candidata in candidatos:
+        response, imagen = descargar_y_validar_imagen(
+            session,
+            candidata,
+            timeout=15,
+        )
+
+        if response is None or imagen is None:
+            continue
+
+        return candidata, response, imagen
+
+    return None, None, None
+
+
+# ============================================================
 # DESCARGAR
 # ============================================================
 
@@ -1407,7 +1591,7 @@ def descargar_imagenes(
     print()
     print("=" * 70)
     print(
-        f"DESCARGANDO {len(urls)} FOTOGRAFÍAS EN PNG"
+        f"DESCARGANDO {len(urls)} FOTOGRAFÍAS ORIGINALES EN PNG"
     )
     print("=" * 70)
 
@@ -1417,39 +1601,57 @@ def descargar_imagenes(
         encoding="utf-8"
     ) as txt:
 
-        for numero, url in enumerate(
+        for numero, url_detectada in enumerate(
             urls,
             start=1
         ):
 
             try:
-
                 # =================================================
-                # DESCARGAR IMAGEN ORIGINAL
+                # RESOLVER VERSIÓN SIN RECORTE
                 # =================================================
 
-                response = session.get(
-                    url,
-                    timeout=30
+                (
+                    url_elegida,
+                    response,
+                    imagen,
+                ) = resolver_imagen_sin_recorte(
+                    session,
+                    url_detectada,
                 )
 
-                response.raise_for_status()
-
-                # =================================================
-                # ABRIR CON PILLOW
-                # =================================================
-
-                imagen = Image.open(
-                    BytesIO(
-                        response.content
+                if (
+                    url_elegida is None
+                    or response is None
+                    or imagen is None
+                ):
+                    raise RuntimeError(
+                        "No se encontró una variante válida de la fotografía."
                     )
+
+                # =================================================
+                # INFORMACIÓN DE LA FUENTE
+                # =================================================
+
+                if "uncropped_scaled_within" in url_elegida.lower():
+                    tipo_fuente = "UNCROPPED"
+
+                elif "-o_a." in url_elegida.lower():
+                    tipo_fuente = "ORIGINAL o_a"
+
+                elif "cc_ft" in url_elegida.lower():
+                    tipo_fuente = "FALLBACK cc_ft"
+
+                else:
+                    tipo_fuente = "FALLBACK"
+
+                dimensiones_originales = (
+                    imagen.width,
+                    imagen.height,
                 )
 
                 # =================================================
                 # CONVERTIR A RGB / RGBA
-                #
-                # Esto evita problemas al convertir
-                # WebP/JPG/AVIF a PNG.
                 # =================================================
 
                 if imagen.mode not in (
@@ -1458,26 +1660,19 @@ def descargar_imagenes(
                 ):
 
                     if "A" in imagen.getbands():
-
-                        imagen = imagen.convert(
-                            "RGBA"
-                        )
+                        imagen = imagen.convert("RGBA")
 
                     else:
-
-                        imagen = imagen.convert(
-                            "RGB"
-                        )
+                        imagen = imagen.convert("RGB")
 
                 # =================================================
-                # SIEMPRE GUARDAR COMO PNG
+                # GUARDAR COMO PNG REAL
                 # =================================================
 
                 archivo = (
                     output_dir
                     /
-                    f"imagen_"
-                    f"{numero:03d}.png"
+                    f"imagen_{numero:03d}.png"
                 )
 
                 imagen.save(
@@ -1486,19 +1681,10 @@ def descargar_imagenes(
                     optimize=True
                 )
 
-                # =================================================
-                # GUARDAR URL ORIGINAL
-                # =================================================
-
+                # Guardamos la URL FINAL elegida, no la cc_ft detectada.
                 txt.write(
-                    url
-                    +
-                    "\n"
+                    f"{url_elegida}\n"
                 )
-
-                # =================================================
-                # TAMAÑO FINAL
-                # =================================================
 
                 kb = (
                     archivo.stat().st_size
@@ -1506,12 +1692,15 @@ def descargar_imagenes(
                     1024
                 )
 
+                ancho, alto = dimensiones_originales
+
                 print(
                     f"[OK] "
-                    f"{numero:03d}/"
-                    f"{len(urls)} "
-                    f"{archivo.name} "
-                    f"({kb:.1f} KB)"
+                    f"{numero:03d}/{len(urls)} "
+                    f"{archivo.name} | "
+                    f"{ancho}x{alto} | "
+                    f"{tipo_fuente} | "
+                    f"{kb:.1f} KB"
                 )
 
             except Exception as exc:
@@ -1520,6 +1709,7 @@ def descargar_imagenes(
                     "ERROR",
                     f"Foto {numero}: {exc}"
                 )
+
 
 
 # ============================================================

@@ -1,8 +1,6 @@
-2026/09/01-13:22:41.553 48dc Creating DB C:\Users\USUARIO\Escritorio\Proyecto Propiedades\codigos\extraccion_imagenes\perfil_chrome_zillow\Default\Local Storage\leveldb since it was missing.
-2026/09/01-13:22:41.656 48dc Reusing MANIFEST C:\Users\USUARIO\Escritorio\Proyecto Propiedades\codigos\extraccion_imagenes\perfil_chrome_zillow\Default\Local Storage\leveldb/MANIFEST-000001
-2026/09/01-13:23:24.597 48dc Level-0 table #5: started
-2026/09/01-13:23:24.659 48dc Level-0 table #5: 535385 bytes OK
-2026/09/01-13:23:24.664 48dc Delete type=0 #3
-2026/09/01-13:48:09.257 8a98 Level-0 table #7: started
-2026/09/01-13:48:09.295 8a98 Level-0 table #7: 541134 bytes OK
-2026/09/01-13:48:09.301 8a98 Delete type=0 #4
+2026/09/03-14:16:43.689 7974 Reusing MANIFEST C:\Users\USUARIO\Escritorio\Proyecto Propiedades\codigos\extraccion_imagenes\perfil_chrome_zillow\Default\Local Storage\leveldb/MANIFEST-000001
+2026/09/03-14:16:43.698 7974 Recovering log #9
+2026/09/03-14:16:43.702 7974 Reusing old log C:\Users\USUARIO\Escritorio\Proyecto Propiedades\codigos\extraccion_imagenes\perfil_chrome_zillow\Default\Local Storage\leveldb/000009.log 
+2026/09/03-14:43:45.301 38d8 Level-0 table #13: started
+2026/09/03-14:43:45.315 38d8 Level-0 table #13: 22983 bytes OK
+2026/09/03-14:43:45.317 38d8 Delete type=0 #9
