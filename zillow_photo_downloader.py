@@ -31,8 +31,179 @@ DEBUG_PORT = 9222
 
 PROFILE_DIR = Path.cwd() / "perfil_chrome_zillow"
 
-OUTPUT_DIR = Path("imagenes_zillow")
+DIRECTORIO_CONFIG = Path("directorio.txt")
 
+# ============================================================
+# CONFIGURACIÓN DEL DIRECTORIO DE GUARDADO
+# ============================================================
+
+def crear_directorio_txt() -> None:
+
+    contenido = """# Este es un archivo de texto donde debes copiar el directorio
+    # donde deseas guardar las imágenes de Zillow.
+    #
+    # Copia tu directorio debajo de estas instrucciones.
+    # IMPORTANTE: la línea del directorio NO debe comenzar con #
+    #
+    # Ejemplo:
+    # C:\\Users\\USUARIO\\Desktop\\Propiedades
+
+    """
+
+    DIRECTORIO_CONFIG.write_text(
+        contenido,
+        encoding="utf-8"
+    )
+
+    print()
+    print("=" * 70)
+    print("No se encontró el archivo 'directorio.txt'")
+    print("=" * 70)
+    print()
+    print(
+        "Edita directorio.txt y coloca el directorio "
+        "donde deseas guardar las propiedades."
+    )
+    print()
+
+    # Abrir automáticamente en Bloc de notas
+    if os.name == "nt":
+        try:
+            os.startfile(
+                DIRECTORIO_CONFIG
+            )
+        except Exception:
+            pass
+
+
+def leer_directorio_guardado() -> Path:
+
+    """
+    Lee directorio.txt.
+
+    Ignora:
+        - líneas vacías
+        - líneas que comienzan con #
+
+    La primera línea válida será utilizada
+    como directorio raíz.
+    """
+
+    if not DIRECTORIO_CONFIG.exists():
+
+        crear_directorio_txt()
+
+        print(
+            "Después de colocar el directorio, "
+            "guarda el archivo y vuelve a ejecutar el programa."
+        )
+
+        sys.exit(0)
+
+    try:
+
+        lineas = DIRECTORIO_CONFIG.read_text(
+            encoding="utf-8"
+        ).splitlines()
+
+    except Exception as error:
+
+        raise RuntimeError(
+            f"No pude leer directorio.txt: {error}"
+        )
+
+    directorio = None
+
+    for linea in lineas:
+
+        linea = linea.strip()
+
+        # Ignorar línea vacía
+        if not linea:
+            continue
+
+        # Ignorar instrucciones/comentarios
+        if linea.startswith("#"):
+            continue
+
+        directorio = linea
+        break
+
+    if not directorio:
+
+        print()
+        print("=" * 70)
+        print("DIRECTORIO NO CONFIGURADO")
+        print("=" * 70)
+        print()
+        print(
+            "Abre directorio.txt y coloca una ruta "
+            "en una línea que NO comience con #."
+        )
+
+        if os.name == "nt":
+            try:
+                os.startfile(
+                    DIRECTORIO_CONFIG
+                )
+            except Exception:
+                pass
+
+        sys.exit(1)
+
+    # Quitar comillas si el usuario las puso:
+    #
+    # "C:\\Users\\..."
+    #
+    directorio = directorio.strip(
+        "\"'"
+    )
+
+    # Expandir variables de Windows y ~
+    directorio = os.path.expandvars(
+        directorio
+    )
+
+    directorio = os.path.expanduser(
+        directorio
+    )
+
+    ruta = Path(
+        directorio
+    )
+
+    # Si se puso una ruta relativa,
+    # convertirla a absoluta.
+    if not ruta.is_absolute():
+        ruta = (
+            Path.cwd()
+            /
+            ruta
+        )
+
+    ruta = ruta.resolve()
+
+    # Crear el directorio si todavía no existe.
+    try:
+
+        ruta.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+    except Exception as error:
+
+        raise RuntimeError(
+            f"No pude crear/acceder al directorio "
+            f"'{ruta}': {error}"
+        )
+
+    log(
+        "OK",
+        f"Directorio raíz: {ruta}"
+    )
+
+    return ruta
 
 # ============================================================
 # LOG
@@ -203,6 +374,37 @@ def conectar_selenium() -> webdriver.Chrome:
         raise RuntimeError(
             "No hay una pestaña de Zillow activa."
         )
+
+    # ========================================================
+    # CERRAR TODAS LAS DEMÁS PESTAÑAS
+    # ========================================================
+
+    handle_zillow = driver.current_window_handle
+
+    for handle in list(driver.window_handles):
+
+        if handle == handle_zillow:
+            continue
+
+        try:
+
+            driver.switch_to.window(handle)
+
+            driver.close()
+
+        except Exception:
+
+            pass
+
+    # Volver a la publicación actual
+    driver.switch_to.window(
+        handle_zillow
+    )
+
+    log(
+        "OK",
+        "Se cerraron todas las pestañas anteriores."
+    )
 
     # ========================================================
     # ESPERAR QUE TERMINE DE CARGAR
@@ -498,6 +700,135 @@ def obtener_nombre_publicacion(
 
     return None
 
+# ============================================================
+# DIRECCIÓN DE LA PUBLICACIÓN
+# ============================================================
+
+def obtener_direccion_publicacion(
+    driver
+    ) -> Optional[str]:
+
+    selectores = [
+        "[data-testid='address']",
+        "[data-testid='bdp-building-address']",
+        "h1",
+    ]
+
+    for selector in selectores:
+
+        try:
+
+            elementos = driver.find_elements(
+                By.CSS_SELECTOR,
+                selector
+            )
+
+            for elemento in elementos:
+
+                texto = (
+                    elemento.text
+                    or ""
+                ).strip()
+
+                if not texto:
+                    continue
+
+                if "," in texto:
+
+                    log(
+                        "OK",
+                        f"Dirección detectada: {texto}"
+                    )
+
+                    return texto
+
+        except Exception:
+
+            continue
+
+    # Fallback buscando una dirección
+    # dentro del texto visible.
+
+    try:
+
+        body = driver.find_element(
+            By.TAG_NAME,
+            "body"
+        ).text
+
+        for linea in body.splitlines():
+
+            linea = linea.strip()
+
+            if re.match(
+                r"^\d+\s+.+?,",
+                linea
+            ):
+
+                log(
+                    "OK",
+                    f"Dirección detectada: {linea}"
+                )
+
+                return linea
+
+    except Exception:
+
+        pass
+
+    log(
+        "AVISO",
+        "No pude detectar la dirección."
+    )
+
+    return None
+
+
+# ============================================================
+# CREAR NOMBRE DE CARPETA DESDE DIRECCIÓN
+# ============================================================
+
+def obtener_nombre_carpeta_direccion(
+    direccion: Optional[str]
+) -> str:
+
+    if not direccion:
+        return "propiedad_zillow"
+
+    # Ejemplo:
+    #
+    # 517 Park Ave, Newburgh, NY 12550
+    #
+    #              ↓
+    #
+    # 517 Park Ave
+
+    nombre = direccion.split(
+        ",",
+        1
+    )[0].strip()
+
+    # Caracteres no permitidos en carpetas Windows
+    nombre = re.sub(
+        r'[\\/:*?"<>|]',
+        "",
+        nombre
+    )
+
+    nombre = re.sub(
+        r"\s+",
+        " ",
+        nombre
+    ).strip()
+
+    nombre = nombre.rstrip(
+        ". "
+    )
+
+    if not nombre:
+        return "propiedad_zillow"
+
+    return nombre
 
 # ============================================================
 # BOTÓN GALERÍA
@@ -1582,12 +1913,6 @@ def descargar_imagenes(
         }
     )
 
-    archivo_urls = (
-        output_dir
-        /
-        "urls_imagenes.txt"
-    )
-
     print()
     print("=" * 70)
     print(
@@ -1595,120 +1920,105 @@ def descargar_imagenes(
     )
     print("=" * 70)
 
-    with open(
-        archivo_urls,
-        "w",
-        encoding="utf-8"
-    ) as txt:
+    for numero, url_detectada in enumerate(
+        urls,
+        start=1
+    ):
 
-        for numero, url_detectada in enumerate(
-            urls,
-            start=1
-        ):
+        try:
 
-            try:
-                # =================================================
-                # RESOLVER VERSIÓN SIN RECORTE
-                # =================================================
+            (
+                url_elegida,
+                response,
+                imagen,
+            ) = resolver_imagen_sin_recorte(
+                session,
+                url_detectada,
+            )
 
-                (
-                    url_elegida,
-                    response,
-                    imagen,
-                ) = resolver_imagen_sin_recorte(
-                    session,
-                    url_detectada,
+            if (
+                url_elegida is None
+                or response is None
+                or imagen is None
+            ):
+
+                raise RuntimeError(
+                    "No se encontró una variante válida de la fotografía."
                 )
 
-                if (
-                    url_elegida is None
-                    or response is None
-                    or imagen is None
-                ):
-                    raise RuntimeError(
-                        "No se encontró una variante válida de la fotografía."
+            if "uncropped_scaled_within" in url_elegida.lower():
+
+                tipo_fuente = "UNCROPPED"
+
+            elif "-o_a." in url_elegida.lower():
+
+                tipo_fuente = "ORIGINAL o_a"
+
+            elif "cc_ft" in url_elegida.lower():
+
+                tipo_fuente = "FALLBACK cc_ft"
+
+            else:
+
+                tipo_fuente = "FALLBACK"
+
+            dimensiones_originales = (
+                imagen.width,
+                imagen.height,
+            )
+
+            if imagen.mode not in (
+                "RGB",
+                "RGBA"
+            ):
+
+                if "A" in imagen.getbands():
+
+                    imagen = imagen.convert(
+                        "RGBA"
                     )
 
-                # =================================================
-                # INFORMACIÓN DE LA FUENTE
-                # =================================================
-
-                if "uncropped_scaled_within" in url_elegida.lower():
-                    tipo_fuente = "UNCROPPED"
-
-                elif "-o_a." in url_elegida.lower():
-                    tipo_fuente = "ORIGINAL o_a"
-
-                elif "cc_ft" in url_elegida.lower():
-                    tipo_fuente = "FALLBACK cc_ft"
-
                 else:
-                    tipo_fuente = "FALLBACK"
 
-                dimensiones_originales = (
-                    imagen.width,
-                    imagen.height,
-                )
+                    imagen = imagen.convert(
+                        "RGB"
+                    )
 
-                # =================================================
-                # CONVERTIR A RGB / RGBA
-                # =================================================
+            archivo = (
+                output_dir
+                /
+                f"imagen_{numero:03d}.png"
+            )
 
-                if imagen.mode not in (
-                    "RGB",
-                    "RGBA"
-                ):
+            imagen.save(
+                archivo,
+                format="PNG",
+                optimize=True
+            )
 
-                    if "A" in imagen.getbands():
-                        imagen = imagen.convert("RGBA")
+            kb = (
+                archivo.stat().st_size
+                /
+                1024
+            )
 
-                    else:
-                        imagen = imagen.convert("RGB")
+            ancho, alto = dimensiones_originales
 
-                # =================================================
-                # GUARDAR COMO PNG REAL
-                # =================================================
+            print(
+                f"[OK] "
+                f"{numero:03d}/{len(urls)} "
+                f"{archivo.name} | "
+                f"{ancho}x{alto} | "
+                f"{tipo_fuente} | "
+                f"{kb:.1f} KB"
+            )
 
-                archivo = (
-                    output_dir
-                    /
-                    f"imagen_{numero:03d}.png"
-                )
+        except Exception as exc:
 
-                imagen.save(
-                    archivo,
-                    format="PNG",
-                    optimize=True
-                )
-
-                # Guardamos la URL FINAL elegida, no la cc_ft detectada.
-                txt.write(
-                    f"{url_elegida}\n"
-                )
-
-                kb = (
-                    archivo.stat().st_size
-                    /
-                    1024
-                )
-
-                ancho, alto = dimensiones_originales
-
-                print(
-                    f"[OK] "
-                    f"{numero:03d}/{len(urls)} "
-                    f"{archivo.name} | "
-                    f"{ancho}x{alto} | "
-                    f"{tipo_fuente} | "
-                    f"{kb:.1f} KB"
-                )
-
-            except Exception as exc:
-
-                log(
-                    "ERROR",
-                    f"Foto {numero}: {exc}"
-                )
+            log(
+                "ERROR",
+                f"Foto {numero}: {exc}"
+            )
 
 
 
@@ -1787,10 +2097,47 @@ def procesar_zillow(
         driver
     )
 
-    nombre_publicacion = (
-        obtener_nombre_publicacion(
-            driver
-        )
+    nombre_publicacion = obtener_nombre_publicacion(
+        driver
+    )
+
+    # ========================================================
+    # LEER DIRECTORIO CONFIGURADO POR EL USUARIO
+    # ========================================================
+
+    directorio_raiz = leer_directorio_guardado()
+
+    # ========================================================
+    # OBTENER DIRECCIÓN
+    # ========================================================
+
+    direccion_publicacion = obtener_direccion_publicacion(
+        driver
+    )
+
+    nombre_carpeta = obtener_nombre_carpeta_direccion(
+        direccion_publicacion
+    )
+
+    # ========================================================
+    # CARPETA FINAL DE ESTA VIVIENDA
+    # ========================================================
+
+    output_propiedad = (
+        directorio_raiz
+        /
+        nombre_carpeta
+    )
+
+    output_propiedad.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    log(
+        "INFO",
+        f"Carpeta de la propiedad: "
+        f"{output_propiedad}"
     )
 
     if nombre_publicacion:
@@ -1800,7 +2147,6 @@ def procesar_zillow(
             f"Publicación: "
             f"{nombre_publicacion}"
         )
-
     # ========================================================
     # 4. ABRIR GALERÍA
     # ========================================================
@@ -1897,7 +2243,7 @@ def procesar_zillow(
 
     descargar_imagenes(
         urls,
-        OUTPUT_DIR,
+        output_propiedad,
         url
     )
 
@@ -1917,8 +2263,13 @@ def procesar_zillow(
     )
 
     print(
+        f"Dirección    : "
+        f"{direccion_publicacion or 'No detectada'}"
+    )
+
+    print(
         f"Carpeta      : "
-        f"{OUTPUT_DIR.resolve()}"
+        f"{output_propiedad.resolve()}"
     )
 
 
