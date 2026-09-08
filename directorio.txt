@@ -5,7 +5,4 @@
     # IMPORTANTE: la línea del directorio NO debe comenzar con #
     #
     # Ejemplo:
-    # C:\Users\USUARIO\Desktop\Propiedades
-
-C:\Users\USUARIO\Documents\imagenes_zillow
-    
+    # C:\Users\USUARIO\Desktop\Propiedades    
