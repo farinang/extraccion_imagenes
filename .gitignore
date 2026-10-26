@@ -9,3 +9,6 @@ respaldo/
 
 # Token de Apify
 .env
+
+# Directorio
+directorio.txt
