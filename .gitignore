@@ -1,0 +1,11 @@
+# Perfil de Chrome para Zillow en caso de usar Selenium 
+perfil_chrome_zillow/
+
+# Carpeta de imágenes descargadas personal
+imagenes/
+
+# Carpeta de respaldo de códigos hechos
+respaldo/
+
+# Token de Apify
+.env

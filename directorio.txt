@@ -1,8 +1,11 @@
 # Este es un archivo de texto donde debes copiar el directorio
-    # donde deseas guardar las imágenes de Zillow.
-    #
-    # Copia tu directorio debajo de estas instrucciones.
-    # IMPORTANTE: la línea del directorio NO debe comenzar con #
-    #
-    # Ejemplo:
-    # C:\Users\USUARIO\Desktop\Propiedades    
+# donde deseas guardar las imágenes de Zillow.
+#
+# Copia tu directorio debajo de estas instrucciones.
+# IMPORTANTE: la línea del directorio NO debe comenzar con #
+#
+# Ejemplo:
+# C:\Users\USUARIO\Desktop\Propiedades    
+#
+# o algo relativo como:
+# imagenes
